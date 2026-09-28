@@ -1,0 +1,243 @@
+# bios.sym for the retail GBA BIOS (MD5 a860e8c0b6d573d191e4ec7db1b1e4f6)
+# ---------------------------------------------------------------------------
+# Vectors, exceptions, SWI and IRQ dispatch. Keep these bytes where they are:
+# a game reading the BIOS from outside gets the last opcode fetched from here.
+# ---------------------------------------------------------------------------
+file 0x0000 vectors.s               ; vectors, exceptions, SWI and IRQ dispatch
+0x0000 arm   _start                 ; the eight vectors
+0x001C arm   exception_handler      ; undefined, aborts and FIQ: to the cartridge's debugger when its header asks, else back
+0x0054 label exception_return
+0x0068 arm   reset_handler
+0x008C arm   HardReset              ; SWI 0x26
+0x00B4 arm   SoftReset              ; SWI 0x00
+0x00E0 arm   reset_stacks           ; SVC, IRQ and System stacks, and clears 0x03007E00-0x03007FFF
+0x0128 arm   irq_handler            ; pushes r0-r3, r12, lr and calls [0x03007FFC]
+0x0138 label irq_return
+0x0140 arm   swi_handler
+0x0170 label swi_return
+0x018C arm   enter_cgb_mode         ; DISPCNT bit 3, then halt: the switch to Game Boy Color mode
+0x01A0 arm   Halt                   ; SWI 0x02
+0x01A8 arm   Stop                   ; SWI 0x03
+0x01AC arm   CustomHalt             ; SWI 0x27
+0x01B8 words stack_tops 16          ; System, IRQ, Supervisor, and the exception handler's
+0x01C8 ptrs  swi_table 43
+0x0274 label debugger_handlers      ; where exception_handler goes when the header has 0xA5 at 0x9C
+0x027C label boot_entry_pointer
+
+# ---------------------------------------------------------------------------
+# Boot
+# ---------------------------------------------------------------------------
+file 0x0284 system.s
+0x0284 thumb start_cgb_cartridge    ; a Game Boy cartridge: fade, then enter_cgb_mode
+noreturn 0x3718
+seed 0x0300 arm boot_irq            ; the IRQ handler during the intro (serial for MultiBoot, VBlank for sound)
+
+# ---------------------------------------------------------------------------
+# Interrupts and arithmetic
+# ---------------------------------------------------------------------------
+0x0328 arm   VBlankIntrWait         ; SWI 0x05
+0x0330 arm   IntrWait               ; SWI 0x04
+0x0358 arm   intr_take_flags
+0x0378 arm   GetBiosChecksum        ; SWI 0x0D: the sum of every word in the BIOS
+0x039C thumb abs
+0x03A4 thumb thumb_Div
+0x03A8 arm   DivArm                 ; SWI 0x07
+0x03B4 arm   Div                    ; SWI 0x06
+0x0404 arm   Sqrt                   ; SWI 0x08
+0x0470 thumb thumb_ArcTan
+0x0474 arm   ArcTan                 ; SWI 0x09
+0x04FC thumb ArcTan2                ; SWI 0x0A
+
+# ---------------------------------------------------------------------------
+# The cartridge header
+# ---------------------------------------------------------------------------
+file 0x05A4 header.s                 ; the cartridge header, and drawing the intro
+0x05A4 thumb copy_cart_header       ; 0x08000004-0x080000DF to 0x03000088 in 20-byte pieces, with reads of ROM between them
+0x05EC hwords cart_read_offsets 192 ; which ROM halfwords copy_cart_header reads: a set of six per header_hash and 0x9E
+0x06AC thumb header_hash            ; two bits from 27 header bytes
+0x06CE thumb copy_header_piece
+0x06E8 thumb check_cart_header      ; the logo against logo_reference, then the complement at 0xBD. 0 = good
+0x0726 thumb intro_reset_letters
+0x0738 thumb intro_letter_path
+0x0768 thumb intro_letter_affine
+0x079E thumb fill_2d
+0x07BC thumb intro_fade_colors      ; interpolates between pairs in intro_colors
+0x0800 thumb SoundBias              ; SWI 0x19
+0x082E thumb load_gameboy_art
+0x0838 thumb load_logo_tree
+0x0840 thumb load_intro_oam
+0x084A thumb load_intro_palette
+0x0858 thumb copy_bios_data         ; copies only from 0x3200 up: the BIOS's data
+0x0874 thumb intro_load_graphics
+0x094A thumb decode_cart_logo       ; logo_tree + the header's logo: Huffman, then Diff16
+0x0974 thumb unpack_cart_logo
+0x0982 thumb place_cart_logo
+
+# ---------------------------------------------------------------------------
+# Memory
+# ---------------------------------------------------------------------------
+file 0x09C2 memory.s
+0x09C2 thumb RegisterRamReset       ; SWI 0x01
+0x0AAC thumb rrr_clear
+0x0B4C thumb CpuSet                 ; SWI 0x0B
+0x0B9C thumb cpuset_check_range
+0x0BA4 arm   check_range
+0x0BC0 thumb thumb_CpuFastSet
+0x0BC4 arm   CpuFastSet             ; SWI 0x0C
+
+# ---------------------------------------------------------------------------
+# Affine
+# ---------------------------------------------------------------------------
+file 0x0C2C affine.s
+0x0C2C arm   BgAffineSet            ; SWI 0x0E
+0x0CE0 arm   ObjAffineSet           ; SWI 0x0F
+0x0D5C hwords sine_table 512        ; 256 entries, 1.14 fixed point
+
+# ---------------------------------------------------------------------------
+# Decompression
+# ---------------------------------------------------------------------------
+file 0x0F5C decompress.s
+0x0F5C thumb thumb_BitUnPack
+0x0F60 arm   BitUnPack              ; SWI 0x10
+0x1010 thumb thumb_HuffUnComp
+0x1014 arm   HuffUnComp             ; SWI 0x13
+0x10F8 thumb thumb_LZ77UnCompWram
+0x10FC arm   LZ77UnCompWram         ; SWI 0x11
+0x1194 arm   LZ77UnCompVram         ; SWI 0x12
+0x1278 thumb RLUnCompWram           ; SWI 0x14
+0x12C0 thumb RLUnCompVram           ; SWI 0x15
+0x1332 thumb Diff8bitUnFilterWram   ; SWI 0x16
+0x135C thumb Diff8bitUnFilterVram   ; SWI 0x17
+0x1398 thumb Diff16bitUnFilter      ; SWI 0x18
+
+# ---------------------------------------------------------------------------
+# Sound: an MP2000 driver
+# ---------------------------------------------------------------------------
+file 0x13C4 sound.s
+0x13C4 thumb MusicPlayerOpen        ; SWI 0x20
+0x1434 thumb MusicPlayerStart       ; SWI 0x21
+0x14C0 thumb MusicPlayerStop        ; SWI 0x22
+0x14FC thumb MusicPlayerContinue    ; SWI 0x23
+0x1514 thumb MusicPlayerFadeOut     ; SWI 0x24
+0x1664 thumb SoundDriverInit        ; SWI 0x1A
+0x179C thumb SoundDriverMode        ; SWI 0x1B
+0x1824 thumb SoundChannelClear      ; SWI 0x1E
+0x1878 thumb SoundDriverVSyncOff    ; SWI 0x28
+0x18C8 thumb SoundDriverVSyncOn     ; SWI 0x29
+0x18D8 thumb MidiKey2Freq           ; SWI 0x1F
+file 0x1DC4 sound_driver.s
+0x1DC4 thumb SoundDriverMain        ; SWI 0x1C
+0x210C thumb SoundDriverVSync       ; SWI 0x1D
+0x2692 thumb SoundGetJumpList       ; SWI 0x2A: copies sound_jump_table
+0x26AA thumb sound_read_byte        ; reads [r2] only if it is not in the BIOS below sound_jump_table
+
+# The command handlers, named by their place in sound_jump_table.
+0x2664 thumb ply_fine
+0x26CE thumb ply_goto
+0x26EE thumb ply_patt
+0x2708 thumb ply_pend
+0x271C thumb ply_rept
+0x274A thumb ply_prio
+0x2754 thumb ply_tempo
+0x2768 thumb ply_keysh
+0x277A thumb ply_voice
+0x27A8 thumb ply_vol
+0x27BA thumb ply_pan
+0x27CE thumb ply_bend
+0x27E2 thumb ply_bendr
+0x27F4 thumb ply_lfos
+0x2804 thumb ply_lfodl
+0x280E thumb ply_mod
+0x281E thumb ply_modt
+0x2836 thumb ply_tune
+0x284A thumb ply_port
+0x2628 thumb ply_endtie
+0x170A thumb SampleFreqSet
+0x23E6 thumb TrackStop
+0x1534 thumb FadeOutBody
+0x159C thumb TrkVolPitSet
+0x23C6 thumb RealClearChain
+0x23B0 thumb SoundMainBTM
+
+# ---------------------------------------------------------------------------
+# The intro
+# ---------------------------------------------------------------------------
+file 0x1928 intro.s
+0x1928 thumb boot_intro             ; the animation, the chime and the header check; returns to SoftReset
+file 0x28CE multiboot.s
+0x28CE thumb MultiBoot              ; SWI 0x25
+0x2B34 thumb intro_link_poll
+seed 0x2D70 thumb boot_serial_irq
+0x2C00 arm   multiboot_set_cpsr     ; msr cpsr_fc, r3; bx lr
+# MultiBoot's serial receive is a state machine: each state leaves the next
+# one's address (an adr) in its work area, and boot_serial_irq jumps to it
+# with mov pc. Nothing else leads to these.
+seed 0x2DA4 thumb
+seed 0x2DF0 thumb
+seed 0x2E0C thumb
+seed 0x2E28 thumb
+seed 0x2E64 thumb
+seed 0x2E88 thumb
+seed 0x2EB4 thumb
+seed 0x2ED4 thumb
+seed 0x2EEC thumb
+seed 0x2EFC thumb
+seed 0x2F64 thumb
+seed 0x2F7C thumb
+seed 0x2F8C thumb
+seed 0x2FE0 thumb
+seed 0x301C thumb
+0x3080 bytes multiboot_key 8        ; "Kawasedo"
+seed 0x1D2A thumb                   ; a branch after a branch: never reached, but code
+
+# ---------------------------------------------------------------------------
+# Literals: function pointers nothing else leads to, and numbers that only
+# look like addresses in the BIOS.
+# ---------------------------------------------------------------------------
+ptr 0x1430                          ; MusicPlayerOpen: the player's callback
+ptr 0x16F8                          ; SoundDriverInit: callbacks it installs
+ptr 0x16FC
+ptr 0x2C14                          ; MultiBoot: the serial callback
+const 0x0B18                        ; 0x0202: fill_2d's step
+const 0x0B48                        ; 0x1F80: RegisterRamReset's IWRAM length, in words
+const 0x1790                        ; 5000
+const 0x1D74                        ; 0x3F27: WINOUT
+const 0x1D7C                        ; 0x1002: DISPCNT
+const 0x2104                        ; 0x0350: an offset into the sound driver's work area
+const 0x2108                        ; 0x0630: likewise
+
+# ---------------------------------------------------------------------------
+# Data. Everything copy_bios_data may read starts at intro_colors.
+# ---------------------------------------------------------------------------
+file 0x30B0 data.s
+0x30B0 hwords intro_letter_tiles 16 ; the OBJ tile each letter's art goes to
+0x30C0 words intro_letter_unpack 8  ; BitUnPack: 2bpp to 8bpp
+0x30C8 words logo_unpack 8          ; BitUnPack: the logo, 1bpp to 8bpp
+0x30D0 bytes sound_clock_table 52
+0x3104 bytes sound_scale_table 180
+0x31B8 words sound_freq_table 48
+0x31E8 hwords sound_pcm_samples_per_vblank 24
+0x3200 hwords intro_colors 100      ; the fades: pairs of colours
+0x3264 hwords intro_palette 8
+0x326C asset logo_tree 36 logo_tree.bin            ; Huffman header and tree; the cartridge supplies the bits
+0x3290 asset logo_reference 156 logo_reference.bin ; the logo check compares the header's 0x04-0x9F with this
+0x332C asset gameboy_art 880 gameboy_art.huff      ; Huffman over LZ77: 2 KiB of 2bpp, eight 32x32 sprites
+0x369C bytes intro_oam 80
+0x36EC bytes intro_bounce 36         ; a Y offset for each of 35 frames, added to a sprite's OAM attribute 0
+
+0x3710 thumb thumb_Halt
+0x3718 thumb thumb_enter_cgb_mode
+0x3720 thumb thumb_DivArm
+0x3728 thumb thumb_VBlankIntrWait
+0x3730 thumb thumb_ObjAffineSet
+
+# The sound driver may read from here on (sound_read_byte).
+0x3738 ptrs  sound_jump_table 36
+0x37C8 voices intro_voices 3
+0x3818 song  song_wait_button       ; A, B or the d-pad, while boot_intro waits for MultiBoot
+0x382C asset wave_sine 50 wave_sine.bin          ; MP2000 wave: 16-byte header, 33 samples and the loop's repeat
+0x389C song  song_hold_select_start ; Select and Start held in frames 65-143: the BIOS then waits for MultiBoot
+0x3908 song  song_intro             ; frame 16 of the intro
+0x3980 song  song_multiboot         ; during a transfer, when a counter reaches 57
+0x39C0 song  song_intro_end         ; frame 162
+0x39D0 asset wave_39D0 1329 wave_39D0.bin          ; MP2000 wave: 16-byte header, 1312 samples and the loop's repeat. The last of the BIOS
