@@ -1,34 +1,34 @@
 # bios.sym for the retail GBA BIOS (MD5 a860e8c0b6d573d191e4ec7db1b1e4f6)
 # ---------------------------------------------------------------------------
-# Vectors, exceptions, SWI and IRQ dispatch. Keep these bytes where they are:
-# a game reading the BIOS from outside gets the last opcode fetched from here.
+# Vectors, exceptions, SWI and IRQ dispatch. Keep these bytes at their addresses:
+# a game that reads the BIOS from outside it gets the last opcode fetched from here.
 # ---------------------------------------------------------------------------
 file 0x0000 vectors.s               ; vectors, exceptions, SWI and IRQ dispatch
 0x0000 arm   _start                 ; the eight vectors
-0x001C arm   exception_handler      ; undefined, aborts and FIQ: to the cartridge's debugger when its header asks, else back
+0x001C arm   exception_handler      ; undefined, aborts and FIQ: goes to the cartridge debugger if the header asks for it, else returns
 0x0054 label exception_return
 0x0068 arm   reset_handler
 0x008C arm   HardReset              ; SWI 0x26
 0x00B4 arm   SoftReset              ; SWI 0x00
-0x00E0 arm   reset_stacks           ; SVC, IRQ and System stacks, and clears 0x03007E00-0x03007FFF
+0x00E0 arm   reset_stacks           ; sets the SVC, IRQ and System stacks and clears 0x03007E00-0x03007FFF
 0x0128 arm   irq_handler            ; pushes r0-r3, r12, lr and calls [0x03007FFC]
 0x0138 label irq_return
 0x0140 arm   swi_handler
 0x0170 label swi_return
-0x018C arm   enter_cgb_mode         ; DISPCNT bit 3, then halt: the switch to Game Boy Color mode
+0x018C arm   enter_cgb_mode         ; sets DISPCNT bit 3, then halts: the switch to Game Boy Color mode
 0x01A0 arm   Halt                   ; SWI 0x02
 0x01A8 arm   Stop                   ; SWI 0x03
 0x01AC arm   CustomHalt             ; SWI 0x27
-0x01B8 words stack_tops 16          ; System, IRQ, Supervisor, and the exception handler's
+0x01B8 words stack_tops 16          ; System, IRQ, Supervisor and exception handler stacks
 0x01C8 ptrs  swi_table 43
-0x0274 label debugger_handlers      ; where exception_handler goes when the header has 0xA5 at 0x9C
+0x0274 label dacs_1mbit_entry       ; where exception_handler goes when the header has 0xA5 at 0x9C
 0x027C label boot_entry_pointer
 
 # ---------------------------------------------------------------------------
 # Boot
 # ---------------------------------------------------------------------------
 file 0x0284 system.s
-0x0284 thumb start_cgb_cartridge    ; a Game Boy cartridge: fade, then enter_cgb_mode
+0x0284 thumb start_cgb_cartridge    ; for a Game Boy cartridge: fades, then goes to enter_cgb_mode
 noreturn 0x3718
 seed 0x0300 arm boot_irq            ; the IRQ handler during the intro (serial for MultiBoot, VBlank for sound)
 
@@ -51,12 +51,12 @@ seed 0x0300 arm boot_irq            ; the IRQ handler during the intro (serial f
 # ---------------------------------------------------------------------------
 # The cartridge header
 # ---------------------------------------------------------------------------
-file 0x05A4 header.s                 ; the cartridge header, and drawing the intro
-0x05A4 thumb copy_cart_header       ; 0x08000004-0x080000DF to 0x03000088 in 20-byte pieces, with reads of ROM between them
-0x05EC hwords cart_read_offsets 192 ; which ROM halfwords copy_cart_header reads: a set of six per header_hash and 0x9E
-0x06AC thumb header_hash            ; two bits from 27 header bytes
+file 0x05A4 header.s                 ; the cartridge header and the intro drawing
+0x05A4 thumb copy_cart_header       ; copies 0x08000004-0x080000DF to 0x03000088 in 20-byte pieces, with ROM reads between them
+0x05EC hwords cart_read_offsets 192 ; the ROM halfwords that copy_cart_header reads: a set of six for each header_hash and 0x9E
+0x06AC thumb header_hash            ; calculates two bits from 27 header bytes
 0x06CE thumb copy_header_piece
-0x06E8 thumb check_cart_header      ; the logo against logo_reference, then the complement at 0xBD. 0 = good
+0x06E8 thumb check_cart_header      ; compares the logo with logo_reference, then checks the complement at 0xBD. 0 = good
 0x0726 thumb intro_reset_letters
 0x0738 thumb intro_letter_path
 0x0768 thumb intro_letter_affine
@@ -67,9 +67,9 @@ file 0x05A4 header.s                 ; the cartridge header, and drawing the int
 0x0838 thumb load_logo_tree
 0x0840 thumb load_intro_oam
 0x084A thumb load_intro_palette
-0x0858 thumb copy_bios_data         ; copies only from 0x3200 up: the BIOS's data
+0x0858 thumb copy_bios_data         ; copies only from 0x3200 and above: the BIOS data
 0x0874 thumb intro_load_graphics
-0x094A thumb decode_cart_logo       ; logo_tree + the header's logo: Huffman, then Diff16
+0x094A thumb decode_cart_logo       ; decodes logo_tree + the header logo: Huffman, then Diff16
 0x0974 thumb unpack_cart_logo
 0x0982 thumb place_cart_logo
 
@@ -131,7 +131,7 @@ file 0x1DC4 sound_driver.s
 0x2692 thumb SoundGetJumpList       ; SWI 0x2A: copies sound_jump_table
 0x26AA thumb sound_read_byte        ; reads [r2] only if it is not in the BIOS below sound_jump_table
 
-# The command handlers, named by their place in sound_jump_table.
+# The command handlers, named by their position in sound_jump_table.
 0x2664 thumb ply_fine
 0x26CE thumb ply_goto
 0x26EE thumb ply_patt
@@ -163,54 +163,54 @@ file 0x1DC4 sound_driver.s
 # The intro
 # ---------------------------------------------------------------------------
 file 0x1928 intro.s
-0x1928 thumb boot_intro             ; the animation, the chime and the header check; returns to SoftReset
+0x1928 thumb boot_intro             ; the animation, the chime and the header check. Returns to SoftReset
 file 0x28CE multiboot.s
 0x28CE thumb MultiBoot              ; SWI 0x25
 0x2B34 thumb intro_link_poll
 seed 0x2D70 thumb boot_serial_irq
 0x2C00 arm   multiboot_set_cpsr     ; msr cpsr_fc, r3; bx lr
-# MultiBoot's serial receive is a state machine: each state leaves the next
-# one's address (an adr) in its work area, and boot_serial_irq jumps to it
-# with mov pc. Nothing else leads to these.
-seed 0x2DA4 thumb
-seed 0x2DF0 thumb
-seed 0x2E0C thumb
-seed 0x2E28 thumb
-seed 0x2E64 thumb
-seed 0x2E88 thumb
-seed 0x2EB4 thumb
-seed 0x2ED4 thumb
-seed 0x2EEC thumb
-seed 0x2EFC thumb
-seed 0x2F64 thumb
-seed 0x2F7C thumb
-seed 0x2F8C thumb
-seed 0x2FE0 thumb
-seed 0x301C thumb
+# The MultiBoot serial receive is a state machine. Each state stores the address
+# of the next state (an adr) in its work area, and boot_serial_irq jumps to that
+# address with mov pc. Nothing else leads to these states.
+seed 0x2DA4 thumb mb_slave_wait_62
+seed 0x2DF0 thumb mb_slave_wait_61
+seed 0x2E0C thumb mb_slave_recv_header
+seed 0x2E28 thumb mb_slave_wait_63
+seed 0x2E64 thumb mb_slave_wait_64
+seed 0x2E88 thumb mb_slave_recv_length
+seed 0x2EB4 thumb mb_slave_recv_program
+seed 0x2ED4 thumb mb_slave_wait_ready
+seed 0x2EEC thumb mb_slave_wait_66
+seed 0x2EFC thumb mb_slave_check_crc
+seed 0x2F64 thumb mb_joy_wait_reset
+seed 0x2F7C thumb mb_joy_wait_read
+seed 0x2F8C thumb mb_joy_recv_length
+seed 0x2FE0 thumb mb_joy_recv_program
+seed 0x301C thumb mb_slave_idle
 0x3080 bytes multiboot_key 8        ; "Kawasedo"
-seed 0x1D2A thumb                   ; a branch after a branch: never reached, but code
+seed 0x1D2A thumb intro_unreached_branch ; a branch after a branch: never reached, but it is code
 
 # ---------------------------------------------------------------------------
-# Literals: function pointers nothing else leads to, and numbers that only
-# look like addresses in the BIOS.
+# Literals: function pointers that nothing else leads to, and numbers that only
+# look like BIOS addresses.
 # ---------------------------------------------------------------------------
-ptr 0x1430                          ; MusicPlayerOpen: the player's callback
-ptr 0x16F8                          ; SoundDriverInit: callbacks it installs
+ptr 0x1430                          ; MusicPlayerOpen: the player callback
+ptr 0x16F8                          ; SoundDriverInit: the callbacks that it installs
 ptr 0x16FC
 ptr 0x2C14                          ; MultiBoot: the serial callback
-const 0x0B18                        ; 0x0202: fill_2d's step
-const 0x0B48                        ; 0x1F80: RegisterRamReset's IWRAM length, in words
+const 0x0B18                        ; 0x0202: the fill_2d step
+const 0x0B48                        ; 0x1F80: the IWRAM length for RegisterRamReset, in words
 const 0x1790                        ; 5000
 const 0x1D74                        ; 0x3F27: WINOUT
 const 0x1D7C                        ; 0x1002: DISPCNT
-const 0x2104                        ; 0x0350: an offset into the sound driver's work area
-const 0x2108                        ; 0x0630: likewise
+const 0x2104                        ; 0x0350: an offset into the work area of the sound driver
+const 0x2108                        ; 0x0630: an offset into the same work area
 
 # ---------------------------------------------------------------------------
-# Data. Everything copy_bios_data may read starts at intro_colors.
+# Data. Everything that copy_bios_data can read starts at intro_colors.
 # ---------------------------------------------------------------------------
 file 0x30B0 data.s
-0x30B0 hwords intro_letter_tiles 16 ; the OBJ tile each letter's art goes to
+0x30B0 hwords intro_letter_tiles 16 ; the OBJ tile for the art of each letter
 0x30C0 words intro_letter_unpack 8  ; BitUnPack: 2bpp to 8bpp
 0x30C8 words logo_unpack 8          ; BitUnPack: the logo, 1bpp to 8bpp
 0x30D0 bytes sound_clock_table 52
@@ -219,11 +219,11 @@ file 0x30B0 data.s
 0x31E8 hwords sound_pcm_samples_per_vblank 24
 0x3200 hwords intro_colors 100      ; the fades: pairs of colours
 0x3264 hwords intro_palette 8
-0x326C asset logo_tree 36 logo_tree.bin            ; Huffman header and tree; the cartridge supplies the bits
-0x3290 asset logo_reference 156 logo_reference.bin ; the logo check compares the header's 0x04-0x9F with this
+0x326C asset logo_tree 36 logo_tree.bin            ; Huffman header and tree. The cartridge supplies the bits
+0x3290 asset logo_reference 156 logo_reference.bin ; the logo check compares header bytes 0x04-0x9F with this
 0x332C asset gameboy_art 880 gameboy_art.huff      ; Huffman over LZ77: 2 KiB of 2bpp, eight 32x32 sprites
 0x369C bytes intro_oam 80
-0x36EC bytes intro_bounce 36         ; a Y offset for each of 35 frames, added to a sprite's OAM attribute 0
+0x36EC bytes intro_bounce 36         ; a Y offset for each of 35 frames, added to OAM attribute 0 of a sprite
 
 0x3710 thumb thumb_Halt
 0x3718 thumb thumb_enter_cgb_mode
@@ -231,13 +231,675 @@ file 0x30B0 data.s
 0x3728 thumb thumb_VBlankIntrWait
 0x3730 thumb thumb_ObjAffineSet
 
-# The sound driver may read from here on (sound_read_byte).
+# The sound driver can read this address and above (sound_read_byte).
 0x3738 ptrs  sound_jump_table 36
 0x37C8 voices intro_voices 3
-0x3818 song  song_wait_button       ; A, B or the d-pad, while boot_intro waits for MultiBoot
-0x382C asset wave_sine 50 wave_sine.bin          ; MP2000 wave: 16-byte header, 33 samples and the loop's repeat
+0x3818 song  song_wait_button       ; A, B or the d-pad pressed while boot_intro waits for MultiBoot
+0x382C asset wave_sine 50 wave_sine.bin          ; MP2000 wave: 16-byte header, 33 samples and one extra sample (the loop repeat)
 0x389C song  song_hold_select_start ; Select and Start held in frames 65-143: the BIOS then waits for MultiBoot
 0x3908 song  song_intro             ; frame 16 of the intro
 0x3980 song  song_multiboot         ; during a transfer, when a counter reaches 57
 0x39C0 song  song_intro_end         ; frame 162
-0x39D0 asset wave_39D0 1329 wave_39D0.bin          ; MP2000 wave: 16-byte header, 1312 samples and the loop's repeat. The last of the BIOS
+0x39D0 asset wave_39D0 1329 wave_39D0.bin          ; MP2000 wave: 16-byte header, 1312 samples and one extra sample (the loop repeat). The last data in the BIOS
+
+# ---------------------------------------------------------------------------
+# Every other label in asm/, by file and address: the branch targets, the
+# literals and the parts of functions named after the first disasm.py run
+# (27-28 Sep 2026). A label line only gives a name to an address. With these
+# lines, disasm.py writes the same names that asm/ has.
+# ---------------------------------------------------------------------------
+# vectors.s
+0x011C label clear_bios_ram
+0x0120 label clear_bios_ram_loop
+0x0278 label dacs_8mbit_entry
+0x0280 label bios_ram_clear_offset
+# system.s
+0x02C6 label cgb_fade_loop
+0x02F0 label cgb_vram_fill_dmacnt
+0x02F4 label cgb_bg2x
+0x02F8 label cgb_border_colors
+0x02FC label cgb_fade_step
+0x0344 label intr_wait_loop
+0x0380 label checksum_loop
+0x03A2 label abs_return
+0x03C8 label div_scale_up
+0x03D4 label div_loop
+0x0410 label sqrt_first_guess
+0x0420 label sqrt_newton_step
+0x0430 label sqrt_div_scale_up
+0x043C label sqrt_div_loop
+0x050A label arctan2_180
+0x0510 label arctan2_y_nonzero
+0x051E label arctan2_270
+0x0524 label arctan2_general
+0x0550 label arctan2_from_90
+0x055E label arctan2_quadrant2
+0x0562 label arctan2_from_180
+0x0572 label arctan2_y_negative
+0x057A label arctan2_from_270
+0x058A label arctan2_quadrant4
+0x059E label arctan2_return
+# header.s
+0x05CC label header_piece_loop
+0x05E4 label header_piece_next
+0x06B2 label hash_byte_loop
+0x06B8 label hash_lane_loop
+0x06EE label logo_check_loop
+0x06F6 label logo_check_9e
+0x06FC label logo_check_byte
+0x070E label complement_check
+0x0710 label complement_sum_loop
+0x0722 label header_check_bad
+0x0724 label header_check_done
+0x072E label reset_letters_loop
+0x0766 label letter_path_return
+0x07A6 label fill_2d_row
+0x07A8 label fill_2d_column
+0x07C0 label fade_colors_loop
+0x081C label soundbias_down
+0x0822 label soundbias_step
+0x0826 label soundbias_delay
+0x082C label soundbias_done
+0x0854 label intro_palette_copy
+0x085C label copy_bios_data_loop
+0x0872 label copy_bios_data_done
+0x088C label debug_dummy_read
+0x08B0 label unpack_gameboy_art
+0x08C6 label unpack_cell_loop
+0x08E4 label copy_cell_loop
+0x08E6 label copy_cell_row_loop
+0x098A label stage_logo_row
+0x098C label stage_logo_block
+0x099C label copy_logo_row_loop
+# memory.s
+0x0A18 label rrr_sio
+0x0A6A label rrr_memory
+0x0AB2 label cpufastset_from_sp
+0x0AB8 label boot_serial_irq_pointer
+0x0ABC label sound_vsync_pointer
+0x0AC0 label header_copy_addr
+0x0AC4 label logo_reference_pointer
+0x0AC8 label letter_states_addr
+0x0ACC label intro_colors_pointer
+0x0AD0 label obj_palette_addr
+0x0AD4 label soundbias_addr
+0x0AD8 label work_buffer_a_addr
+0x0ADC label gameboy_art_pointer
+0x0AE0 label logo_tree_pointer
+0x0AE4 label intro_oam_pointer
+0x0AE8 label intro_palette_dest
+0x0AEC label intro_palette_pointer
+0x0AF0 label intro_letter_unpack_pointer
+0x0AF4 label dacs_1mbit_probe_addr
+0x0AF8 label header_b4_addr
+0x0AFC label dacs_8mbit_probe_addr
+0x0B00 label blank_logo_cpuset
+0x0B04 label work_buffer_b_addr
+0x0B08 label letter_unpack_vram
+0x0B0C label intro_letter_tiles_pointer
+0x0B10 label obj_vram_addr
+0x0B14 label ball_bg3_map
+0x0B18 label ball_bg3_map_step
+0x0B1C label ball_bg3_map_first
+0x0B20 label intro_flag_addr
+0x0B24 label logo_bits_buffer
+0x0B28 label logo_diff16_header
+0x0B2C label logo_unpack_pointer
+0x0B30 label logo_stage_vram
+0x0B34 label logo_copy_src_vram
+0x0B38 label logo_copy_dest_vram
+0x0B3C label rrr_fill_mode
+0x0B40 label rrr_sio_start
+0x0B44 label rrr_soundcnt
+0x0B48 label iwram_clear_words
+0x0B66 label cpuset_fill32
+0x0B6E label cpuset_copy32
+0x0B78 label cpuset_16bit
+0x0B80 label cpuset_fill16
+0x0B8A label cpuset_copy16
+0x0B96 label cpuset_return
+0x0BBC label check_range_return
+0x0C04 label cpufastset_fill
+0x0C14 label cpufastset_copy
+0x0C24 label cpufastset_return
+# affine.s
+0x0C30 label bgaffine_loop
+0x0CD8 label bgaffine_return
+0x0CE4 label objaffine_loop
+0x0D54 label objaffine_return
+# decompress.s
+0x0FA4 label bitunpack_next_byte
+0x0FBC label bitunpack_next_unit
+0x0FDC label bitunpack_put_unit
+0x0FF8 label bitunpack_unit_done
+0x1004 label bitunpack_return
+0x1064 label huff_next_word
+0x1074 label huff_next_bit
+0x10DC label huff_bit_done
+0x10EC label huff_return
+0x1114 label lz77_wram_next_flags
+0x1124 label lz77_wram_next_block
+0x1144 label lz77_wram_backref
+0x116C label lz77_wram_copy
+0x117C label lz77_wram_block_done
+0x118C label lz77_wram_return
+0x11B4 label lz77_vram_next_flags
+0x11C4 label lz77_vram_next_block
+0x11F0 label lz77_vram_backref
+0x1224 label lz77_vram_copy
+0x1260 label lz77_vram_block_done
+0x1270 label lz77_vram_return
+0x1286 label rl_wram_next_packet
+0x129A label rl_wram_copy
+0x12A8 label rl_wram_run
+0x12B0 label rl_wram_fill
+0x12BA label rl_wram_return
+0x12D4 label rl_vram_next_packet
+0x12EE label rl_vram_copy
+0x1302 label rl_vram_copy_next
+0x1308 label rl_vram_run
+0x1312 label rl_vram_fill
+0x1324 label rl_vram_fill_next
+0x132A label rl_vram_return
+0x1346 label diff8_wram_loop
+0x1356 label diff8_wram_return
+0x1372 label diff8_vram_loop
+0x1392 label diff8_vram_return
+0x13AC label diff16_loop
+0x13BC label diff16_return
+0x13C0 label call_via_r2
+0x13C2 label call_via_r1
+# sound.s
+0x13D6 label open_clear_player
+0x13E8 label open_track_loop
+0x13F2 label open_track_check
+0x1414 label open_link_head
+0x141E label open_return
+0x1424 label mplay_status_paused
+0x1428 label open_sound_area_base
+0x142C label open_smsh
+0x1430 label open_mplay_main
+0x146A label start_track_loop
+0x1482 label start_track_check
+0x1490 label start_unused_loop
+0x14A0 label start_unused_check
+0x14B0 label start_unlock
+0x14B4 label start_return
+0x14BC label start_smsh
+0x14DE label stop_track_loop
+0x14EA label stop_track_check
+0x14F0 label stop_return
+0x14F8 label stop_smsh
+0x150E label continue_return
+0x1510 label continue_smsh
+0x152A label fadeout_return
+0x1530 label fadeout_smsh
+0x1560 label fade_stop_loop
+0x156E label fade_stop_check
+0x1572 label fade_return
+0x1578 label fade_set_volumes
+0x1580 label fade_volume_loop
+0x1592 label fade_volume_next
+0x1596 label fade_volume_check
+0x15BA label trkvolpit_pan
+0x15D0 label trkvolpit_pan_clamp
+0x15DA label trkvolpit_pan_max
+0x15E0 label trkvolpit_right
+0x15F2 label trkvolpit_store_right
+0x1606 label trkvolpit_store_left
+0x1608 label trkvolpit_pitch
+0x1640 label trkvolpit_store_pitch
+0x1646 label trkvolpit_call_ext
+0x1660 label trkvolpit_sound_area_base
+0x16DC label init_dma_base
+0x16E0 label init_sound_base
+0x16E4 label init_soundcnt_h
+0x16E8 label init_fifo_a
+0x16EC label init_fifo_b
+0x16F0 label init_sound_area_base
+0x16F4 label init_clear_area_cpuset
+0x16F8 label init_ply_note
+0x16FC label init_dummy_func
+0x1700 label init_jump_table
+0x1704 label init_smsh
+0x1708 label DummyFunc
+0x176E label sfs_wait_not_159
+0x1774 label sfs_wait_159
+0x1784 label sfs_sound_area_base
+0x1788 label sfs_samples_table
+0x178C label sfs_frame_hz_x10000
+0x1790 label sfs_rounding_5000
+0x1794 label sfs_tm0cnt
+0x1798 label sfs_cycles_per_frame
+0x17BA label mode_channels
+0x17CE label mode_channel_off_loop
+0x17D6 label mode_volume
+0x17E2 label mode_da_bits
+0x17FE label mode_rate
+0x1810 label mode_unlock
+0x1812 label mode_return
+0x1818 label mode_sound_area_base
+0x181C label mode_smsh
+0x1820 label mode_sound_base
+0x183C label clear_channel_loop
+0x1850 label clear_cgb_loop
+0x1866 label clear_unlock
+0x1868 label clear_return
+0x1870 label clear_sound_area_base
+0x1874 label clear_smsh
+0x18B0 label vsyncoff_return
+0x18B8 label vsyncoff_sound_area_base
+0x18BC label vsyncoff_smsh
+0x18C0 label vsyncoff_dma_base
+0x18C4 label vsyncoff_clear_pcm_cpuset
+0x18D4 label vsyncon_dma_base
+0x18E6 label midikey_lookup
+0x1920 label midikey_fine_max
+0x1924 label midikey_scale_table
+# intro.s
+0x1962 label intro_graphics
+0x19B4 label intro_frame
+0x19B8 label intro_letter
+0x19D2 label intro_letter_state
+0x19FA label intro_letter_flying
+0x1A44 label intro_letter_narrow
+0x1A76 label intro_letter_landed
+0x1A84 label intro_letter_place
+0x1AAC label intro_letter_color
+0x1AC2 label intro_letter_bounce
+0x1AE6 label intro_letter_pulse
+0x1B0A label intro_next_letter
+0x1B10 label intro_after_letters
+0x1B1C label intro_shine_event
+0x1B38 label intro_shine_running
+0x1B4C label ball_sprite_hidden
+0x1B4E label ball_sprite_update
+0x1B72 label obj_window_copy_loop
+0x1BB2 label intro_shine_display
+0x1BBC label intro_display_plain
+0x1BBE label intro_set_dispcnt
+0x1BC4 label intro_every_frame
+0x1BE4 label intro_check_end_song
+0x1BEA label intro_start_song
+0x1BF0 label intro_select_start_check
+0x1C1C label intro_select_start_fade
+0x1C32 label intro_logo_fade
+0x1C3C label intro_end_of_frame
+0x1C62 label intro_next_frame
+0x1C6A label intro_check_header
+0x1C80 label intro_wait_multiboot
+0x1C86 label intro_wait_loop
+0x1CC2 label intro_wait_fade_back
+0x1CD8 label intro_hand_over
+0x1CE2 label intro_sprites_normal_loop
+0x1CFC label intro_fade_out_loop
+0x1D16 label intro_fade_out_next
+0x1D2C label intro_postflg_reg
+0x1D30 label intro_ie_reg
+0x1D34 label intro_blend_start
+0x1D38 label intro_blend_base
+0x1D3C label intro_sound_area
+0x1D40 label intro_sound_mode
+0x1D44 label intro_player0_tracks
+0x1D48 label intro_player0
+0x1D4C label intro_player1_tracks
+0x1D50 label intro_player1
+0x1D54 label intro_letter_timers
+0x1D58 label intro_letter_states
+0x1D5C label intro_letter_blocks
+0x1D60 label intro_affine_group1
+0x1D64 label intro_oam_ptr
+0x1D68 label intro_oam_x_mask
+0x1D6C label intro_bounce_ptr
+0x1D70 label intro_blend_shine
+0x1D74 label intro_winout_shine
+0x1D78 label intro_dispcnt_shine
+0x1D7C label intro_dispcnt_plain
+0x1D80 label intro_song_start_ptr
+0x1D84 label intro_song_end_ptr
+0x1D88 label intro_header_base
+0x1D8C label intro_keyinput_reg
+0x1D90 label intro_song_select_start_ptr
+0x1D94 label intro_header_copy
+0x1D98 label intro_bios_ram
+0x1D9C label intro_song_wait_button_ptr
+0x1DA0 label intro_blend_fade_out
+0x1DA4 label intro_reset_all
+0x1DA6 label intro_reset_and_return
+0x1DB4 label thumb_umul_high
+0x1DB8 label umul_high
+# sound_driver.s
+0x1DD2 label sound_main_lock
+0x1DF2 label sound_main_cgb
+0x1E12 label sound_main_frame
+0x1E20 label sound_main_reverb
+0x1E30 label sound_main_reverb_loop
+0x1E74 label sound_main_clear
+0x1E82 label sound_main_clear_8
+0x1E8E label sound_main_clear_loop
+0x1EA2 label sound_main_channels
+0x1EB0 label sound_main_channel_loop
+0x1EBE label sound_main_channel_on
+0x1EEE label sound_main_envelope
+0x1EFE label sound_main_channel_off
+0x1F04 label sound_main_release
+0x1F16 label sound_main_echo_start
+0x1F24 label sound_main_decay
+0x1F42 label sound_main_attack_check
+0x1F46 label sound_main_attack
+0x1F54 label sound_main_set_volume
+0x1F88 label sound_main_to_mix
+0x1F94 label sound_main_mix
+0x1FAC label mix_fixed_loop
+0x1FF0 label mix_fixed_next
+0x1FFC label mix_resample
+0x2004 label mix_advance
+0x200C label mix_pass_4
+0x2028 label mix_pass_2
+0x2044 label mix_pass_1_check
+0x204C label mix_pass_1
+0x206C label mix_pass_1_next
+0x2070 label mix_pass_1_fw
+0x207C label mix_interpolate
+0x20CC label mix_save_fw
+0x20D0 label mix_save_position
+0x20D8 label mix_channel_done
+0x20E4 label sound_main_next_channel
+0x20EE label sound_main_exit
+0x2102 label call_r3
+0x2104 label main_pcm_offset
+0x2108 label main_pcm_half_size
+0x2136 label vsync_return
+0x2138 label vsync_dma1cnt_h
+0x213C label vsync_dma2cnt_h
+0x2140 label driver_sound_area_ptr
+0x2144 label driver_smsh
+0x2148 label MPlayMain
+0x2152 label mplay_lock
+0x2170 label mplay_check_status
+0x2178 label mplay_playing
+0x218C label mplay_tick
+0x2194 label mplay_tick_track
+0x219E label mplay_track_on
+0x21AC label mplay_gate_loop
+0x21C8 label mplay_unlink_channel
+0x21CE label mplay_gate_next
+0x21D4 label mplay_track_start
+0x21FA label mplay_read_command
+0x2206 label mplay_command_byte
+0x2210 label mplay_dispatch
+0x2226 label mplay_handler_check
+0x224A label mplay_wait_command
+0x2254 label mplay_check_wait
+0x2276 label mplay_lfo_step
+0x228A label mplay_lfo_falling
+0x228E label mplay_lfo_apply
+0x22AA label mplay_lfo_volume
+0x22AC label mplay_lfo_mark
+0x22B0 label mplay_track_done
+0x22B6 label mplay_next_track
+0x22C2 label mplay_tick_done
+0x22D0 label mplay_set_status
+0x22D6 label mplay_tempo_check
+0x22DE label mplay_update_channels
+0x22E2 label mplay_update_track
+0x2300 label mplay_update_channel
+0x2310 label mplay_update_volume
+0x233C label mplay_update_pitch
+0x234E label mplay_update_key
+0x236C label mplay_update_pcm_freq
+0x2378 label mplay_update_next_channel
+0x237E label mplay_update_done
+0x2388 label mplay_update_next_track
+0x2392 label mplay_exit
+0x23A4 label mplay_clock_table
+0x23A8 label mplay_sound_area_ptr
+0x23AC label mplay_smsh
+0x23D8 label clearchain_was_first
+0x23DA label clearchain_fix_next
+0x23E0 label clearchain_no_track
+0x23E4 label clearchain_return
+0x23FA label trackstop_channel_loop
+0x2412 label trackstop_channel_off
+0x2416 label trackstop_next_channel
+0x241C label trackstop_empty_list
+0x241E label trackstop_return
+0x2424 label ply_note
+0x2468 label note_args_done
+0x246A label note_voice
+0x2486 label note_kit_voice
+0x2488 label note_table_voice
+0x24A0 label note_drum_pan
+0x24BC label note_drum_key
+0x24C0 label note_plain_voice
+0x24C4 label note_priority
+0x24D4 label note_cgb_check
+0x24EC label note_cgb_channel
+0x250C label note_cgb_same_priority
+0x2514 label note_find_pcm_channel
+0x2522 label note_pcm_loop
+0x253C label note_pcm_playing
+0x2540 label note_pcm_priority
+0x254C label note_pcm_equal
+0x2558 label note_pcm_earlier_track
+0x255A label note_pcm_choose
+0x255C label note_pcm_next
+0x2568 label note_take_channel
+0x257C label note_link_first
+0x258C label note_setup_channel
+0x25D0 label note_freq
+0x25E6 label note_cgb_freq
+0x25F6 label note_pcm_freq
+0x2600 label note_start
+0x260E label note_exit
+0x2620 label note_sound_area_ptr
+0x2624 label note_clock_table
+0x263A label endtie_track_key
+0x263C label endtie_find
+0x2644 label endtie_channel_loop
+0x2658 label endtie_next_channel
+0x265E label endtie_return
+0x266E label fine_channel_loop
+0x267C label fine_unlink
+0x2688 label fine_track_off
+0x2698 label jumplist_copy_loop
+0x26A8 label ldrb_r3_r2
+0x26BA label chk_refused
+0x26BC label chk_return
+0x26C0 label chk_jump_table
+0x26C4 label ld_r3_tp_adr_i
+0x26C6 label ld_r3_tp_adr_i_r2
+0x26D0 label ply_goto_read
+0x2706 label patt_too_deep
+0x271A label pend_return
+0x272C label rept_count
+0x273E label rept_done
+0x2802 label lfos_return
+0x281C label mod_return
+0x2834 label modt_return
+0x2860 label port_sound_regs
+0x2864 label mb_crc_word
+0x2866 label mb_crc_bit_loop
+0x2872 label mb_crc_next_bit
+0x287A label mb_decrypt
+0x2890 label mb_decrypt_start
+0x2894 label mb_decrypt_loop
+0x28BA label mb_decrypt_return
+0x28BC label mb_master_send_wait
+0x28C6 label mb_master_wait
+# multiboot.s
+0x28FA label mb_set_siocnt
+0x293A label mb_set_mask
+0x2950 label mb_set_crc_key
+0x2960 label mb_check_73_loop
+0x296A label mb_check_73_next
+0x296E label mb_fail_far
+0x2970 label mb_check_73_skip
+0x2980 label mb_delay_loop
+0x299A label mb_store_rr
+0x29A4 label mb_send_loop
+0x29DE label mb_send_unit
+0x29F6 label mb_echo_address
+0x29FA label mb_check_echo
+0x29FE label mb_echo_loop
+0x2A0A label mb_echo_next
+0x2A0E label mb_echo_skip
+0x2A1A label mb_send_next
+0x2A2C label mb_send_check_end
+0x2A36 label mb_send_65
+0x2A3C label mb_wait_75
+0x2A46 label mb_wait_75_loop
+0x2A5A label mb_wait_75_next
+0x2A5E label mb_wait_75_skip
+0x2A6A label mb_wait_75_send
+0x2A70 label mb_send_crc
+0x2A8E label mb_fail
+0x2A90 label mb_return
+0x2A9A label mb_clear_loop
+0x2AA4 label mb_bx_r2
+0x2AA6 label mb_master_send
+0x2AA8 label mb_master_delay
+0x2AB8 label mb_master_start
+0x2ABC label mb_slave_logo
+0x2AE4 label mb_slave_logo_none
+0x2AE8 label mb_slave_logo_fade
+0x2AF0 label mb_slave_logo_phase_loop
+0x2B1E label mb_slave_logo_colours
+0x2B2E label mb_slave_logo_boot
+0x2B48 label link_poll_random
+0x2B68 label link_poll_waiting
+0x2B6A label link_poll_store_random
+0x2B86 label link_poll_to_joy
+0x2B8C label link_poll_count_multi
+0x2B94 label link_poll_to_normal
+0x2B9A label link_poll_count_joy
+0x2B9E label link_poll_to_multi
+0x2BA2 label link_poll_new_mode
+0x2BA8 label link_poll_keep_mode
+0x2BAE label link_poll_phase
+0x2BDE label link_poll_set_crc
+0x2BE2 label link_poll_setup_multi
+0x2BEC label link_poll_set_siocnt
+0x2BF4 label link_poll_setup_normal
+0x2C08 label mb_length_mask
+0x2C0C label mb_dma_regs
+0x2C10 label mb_sio_base
+0x2C14 label mb_idle_state_ptr
+0x2C18 label mb_normal_siocnt_crc
+0x2C1C label header_copy_minus_24
+0x2C20 label link_poll_phase1
+0x2C40 label link_poll_irq_normal
+0x2C44 label link_poll_irq_multi
+0x2C4C label link_poll_set_irq_siocnt
+0x2C50 label link_poll_start_states
+0x2C58 label link_poll_phase2
+0x2C5E label link_poll_phase34
+0x2C6C label link_poll_phase3
+0x2C84 label link_poll_timed_out
+0x2C8A label link_poll_keep_timer
+0x2C8C label link_poll_check_done
+0x2CE8 label link_poll_refuse
+0x2CEE label link_poll_decrypt
+0x2D02 label link_poll_decrypt_words
+0x2D26 label link_poll_decrypt_save
+0x2D2C label mb_crc_x_normal
+0x2D30 label mb_crc_x_multi
+0x2D34 label mb_key_k_normal
+0x2D38 label mb_key_k_multi
+0x2D3C label mb_key_k_joy
+0x2D40 label mb_seed_mul
+0x2D44 label mb_key_mul
+0x2D48 label mb_header_dest
+0x2D4C label mb_multi_siocnt
+0x2D50 label link_poll_done
+0x2D56 label link_poll_return_0
+0x2D58 label link_poll_return
+0x2D5C label mb_ime_off
+0x2D5E label mb_ime_set
+0x2D64 label mb_ime_on
+0x2D68 label intro_link_reset
+0x2D82 label serial_irq_dispatch
+0x2D86 label serial_irq_joy_check
+0x2D94 label mb_program_dest
+0x2D98 label mb_master_multi_siocnt
+0x2D9C label mb_multiboot_flag_ptr
+0x2DA0 label mb_slave_area_ptr
+0x2DB4 label mb_slave_multi_id
+0x2DBA label mb_slave_set_number
+0x2DCA label mb_slave_got_62
+0x2DF2 label mb_slave_check_61
+0x2E1C label mb_slave_reply_count
+0x2E34 label mb_slave_got_63
+0x2E44 label mb_slave_multi_cc
+0x2E50 label mb_slave_set_m
+0x2E5A label mb_slave_reply_73
+0x2E62 label mb_slave_reset_far
+0x2E80 label mb_slave_reply_73rr
+0x2E84 label mb_slave_ignore
+0x2E9A label mb_slave_check_length
+0x2EC4 label mb_slave_next_unit
+0x2EE4 label mb_slave_reply_75
+0x2F0E label mb_slave_crc_loop
+0x2F18 label mb_slave_crc_next
+0x2F1C label mb_slave_crc_skip
+0x2F1E label mb_slave_crc_done
+0x2F22 label mb_slave_check_hh
+0x2F3C label mb_slave_next_state
+0x2F3E label mb_slave_reply
+0x2F44 label mb_slave_rearm
+0x2F50 label mb_slave_set_timeout
+0x2F56 label mb_slave_reset
+0x2F60 label mb_normal_slave_siocnt
+0x2FB0 label mb_joy_length_n
+0x2FD0 label mb_joy_set_end
+0x3006 label mb_joy_all_in
+0x3014 label mb_joy_set_stat
+0x3018 label mb_joy_next_state
+0x301E label mb_slave_set_entry
+0x3030 label mb_entry_check_header
+0x3038 label mb_slave_logo_decode
+0x3048 label mb_slave_logo_to_fade
+0x304A label link_poll_logo_steps
+0x3056 label link_poll_logo_place
+0x305E label link_poll_song
+0x3074 label link_poll_to_random
+0x3078 label mb_sio_base_2
+0x307C label mb_length_mask_2
+0x3088 label mb_reg_ie
+0x308C label mb_program_dest_2
+0x3090 label mb_joy_check_words
+0x3094 label mb_header_dest_2
+0x3098 label mb_slave_area_ptr_2
+0x309C label mb_joy_markers
+0x30A0 label mb_joy_entry_branch
+0x30A4 label mb_entry_branch
+0x30A8 label mb_music_player
+0x30AC label song_multiboot_ptr
+# data.s
+0x3714 label thumb_Halt_arm
+0x371C label thumb_enter_cgb_mode_arm
+0x3724 label thumb_DivArm_arm
+0x372C label thumb_VBlankIntrWait_arm
+0x3734 label thumb_ObjAffineSet_arm
+0x37EC label song_wait_button_track1
+0x37FC label song_wait_button_track2
+0x380A label song_wait_button_track3
+0x3860 label song_hold_select_start_track1
+0x3870 label song_hold_select_start_track2
+0x387E label song_hold_select_start_track3
+0x388C label song_hold_select_start_track4
+0x38B4 label song_intro_track1
+0x38C3 label song_intro_track2
+0x38D0 label song_intro_track3
+0x38DE label song_intro_track4
+0x38EC label song_intro_track5
+0x38FA label song_intro_track6
+0x3928 label song_multiboot_track1
+0x3938 label song_multiboot_track2
+0x3946 label song_multiboot_track3
+0x3954 label song_multiboot_track4
+0x3961 label song_multiboot_track5
+0x396F label song_multiboot_track6
+0x39A0 label song_intro_end_track1
+0x39B0 label song_intro_end_track2
+0x3F01 label bios_end
