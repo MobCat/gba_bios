@@ -1,6 +1,9 @@
 # GBA BIOS
 This is a disassembly and recompile project of the Game Boy Advance BIOS ROM.
 
+<img width="993" height="979" alt="image" src="https://github.com/user-attachments/assets/4b2f048a-db20-4d1d-a2f1-756a2de4b689" />
+
+
 It builds the following file:
 * gba_bios.bin `md5: a860e8c0b6d573d191e4ec7db1b1e4f6`
 
